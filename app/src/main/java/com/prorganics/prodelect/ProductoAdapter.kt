@@ -1,3 +1,4 @@
+
 package com.prorganics.prodelect
 
 import android.view.LayoutInflater
@@ -7,6 +8,8 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.prorganics.prodelect.data.local.entity.ProductEntity
+import java.text.NumberFormat
+import java.util.Locale
 
 class ProductoAdapter(
     private var productos: List<ProductEntity> = emptyList(),
@@ -16,6 +19,14 @@ class ProductoAdapter(
 
     // Lista completa proveniente de Room
     private var productosCompletos: List<ProductEntity> = emptyList()
+
+    // Formato de moneda chilena
+    private val formatoPrecio = NumberFormat.getCurrencyInstance(
+        Locale.forLanguageTag("es-CL")
+    ).apply {
+        maximumFractionDigits = 0
+        minimumFractionDigits = 0
+    }
 
     class ProductoViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val nombre: TextView = view.findViewById(R.id.tvNombreProducto)
@@ -44,16 +55,22 @@ class ProductoAdapter(
     ) {
         val producto = productos[position]
 
+        // Información del producto
         holder.nombre.text = producto.nombre
         holder.descripcion.text = producto.descripcion
         holder.cantidad.text = "Cantidad: ${producto.cantidad}"
-        holder.precio.text = "Precio: $${producto.precio}"
+
+        // Precio con formato chileno: $49.000
+        holder.precio.text = "Precio: ${formatoPrecio.format(producto.precio)}"
+
         holder.proveedor.text = "Proveedor: ${producto.proveedor}"
 
+        // Botón editar
         holder.btnEditar.setOnClickListener {
             onEditar(producto)
         }
 
+        // Botón eliminar
         holder.btnEliminar.setOnClickListener {
             onEliminar(producto)
         }
