@@ -16,12 +16,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.prorganics.prodelect.data.repository.FirebaseRepository
 import com.prorganics.prodelect.ui.theme.ProdElectTheme
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    // Instancia temporal del repositorio para la prueba.
-    private val firebaseRepository = FirebaseRepository()
+    
+    // Ya no es necesario instanciar los repositorios manualmente.
+    // Compose se encargará de inyectar el ViewModel usando hiltViewModel()
+    // en los @Composables correspondientes.
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,16 +34,18 @@ class MainActivity : ComponentActivity() {
             ProdElectTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Box(modifier = Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
-                        Text(text = "Escribiendo en Firebase...\nRevisa el Logcat o Firestore Console.")
+                        Text(text = "Dagger-Hilt Configurado.\nRevisa el Logcat o Firestore Console.")
                     }
 
-                    // Lanzar un efecto secundario en Composición para ejecutar la corrutina de escritura
+                    // Por ahora dejamos comentada esta prueba de escritura 
+                    // ya que migramos FirebaseRepository a ProductViewModel mediante Inyección de Dependencias
+                    /* 
                     LaunchedEffect(Unit) {
-                        // Cambiamos al hilo IO para operaciones de red
                         launch(Dispatchers.IO) {
-                            firebaseRepository.agregarProductoDePrueba()
+                            // firebaseRepository.agregarProductoDePrueba()
                         }
-                    }
+                    } 
+                    */
                 }
             }
         }
