@@ -11,24 +11,32 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import com.prorganics.prodelect.data.local.AppDatabase
-import com.prorganics.prodelect.data.local.dao.ProductoDao
 import com.prorganics.prodelect.data.local.entity.ProductEntity
+import com.prorganics.prodelect.ui.viewmodel.ProductViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import java.util.UUID
+import androidx.activity.viewModels
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private lateinit var productoAdapter: ProductoAdapter
-    private lateinit var productoDao: ProductoDao
+    
+    // Inyectamos el ProductViewModel utilizando el delegado `by viewModels()` (Hilt)
+    private val productViewModel: ProductViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        //Implementación Temporal ELIMINAR LUEGO.
+        productViewModel.descargarCatalogoProveedor()
+
         // Interfaz principal XML
         setContentView(R.layout.activity_main)
+
+        // Se eliminó la llamada a prepopulateDatabase() para evitar que elimine los productos
+        // que creas manualmente al girar la pantalla o iniciar la Actividad.
 
         val recyclerView =
             findViewById<RecyclerView>(R.id.recyclerViewProductos)
@@ -38,10 +46,6 @@ class MainActivity : ComponentActivity() {
 
         val searchView =
             findViewById<SearchView>(R.id.searchViewProductos)
-
-        // Inicializar base de datos Room
-        val database = AppDatabase.getDatabase(this)
-        productoDao = database.productoDao()
 
         // Configurar adaptador del RecyclerView
         productoAdapter = ProductoAdapter(
@@ -56,10 +60,20 @@ class MainActivity : ComponentActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = productoAdapter
 
-        // Observar cambios en Room
+        // Observar cambios en la Nube de Firebase en tiempo real
         lifecycleScope.launch {
-            productoDao.getAllProducts().collect { productos ->
-                productoAdapter.actualizarProductos(productos)
+            productViewModel.productosNube.collect { productosFirebase ->
+                val listaMapeada = productosFirebase.map { firebaseProd ->
+                    ProductEntity(
+                        id = firebaseProd.id.ifEmpty { UUID.randomUUID().toString() },
+                        nombre = firebaseProd.nombre,
+                        descripcion = firebaseProd.descripcion,
+                        cantidad = firebaseProd.cantidad,
+                        precio = firebaseProd.precio,
+                        proveedor = firebaseProd.proveedor
+                    )
+                }
+                productoAdapter.actualizarProductos(listaMapeada)
             }
         }
 
@@ -182,42 +196,23 @@ class MainActivity : ComponentActivity() {
                         return@setOnClickListener
                     }
 
-                    // Crear o actualizar entidad
-                    val producto = ProductEntity(
-                        id = productoExistente?.id
-                            ?: UUID.randomUUID().toString(),
-                        nombre = nombre,
-                        descripcion = descripcion,
-                        cantidad = cantidad,
-                        precio = precio,
-                        proveedor = proveedor
+                    val id = productoExistente?.id ?: UUID.randomUUID().toString()
+
+                    // Delega el guardado al ViewModel, que maneja tanto Room como Firebase.
+                    productViewModel.saveProduct(
+                        id = id,
+                        name = nombre,
+                        description = descripcion,
+                        qty = cantidad,
+                        price = precio,
+                        supplier = proveedor
                     )
 
-                    lifecycleScope.launch {
-
-                        if (productoExistente == null) {
-
-                            // Insertar nuevo producto
-                            productoDao.insertProduct(producto)
-
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Producto agregado",
-                                Toast.LENGTH_SHORT
-                            ).show()
-
-                        } else {
-
-                            // Actualizar producto existente
-                            productoDao.updateProduct(producto)
-
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Producto actualizado",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    }
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (productoExistente == null) "Producto agregado" else "Producto actualizado",
+                        Toast.LENGTH_SHORT
+                    ).show()
 
                     dialog.dismiss()
                 }
@@ -236,16 +231,14 @@ class MainActivity : ComponentActivity() {
             .setMessage("¿Deseas eliminar ${producto.nombre}?")
             .setPositiveButton("Eliminar") { _, _ ->
 
-                lifecycleScope.launch {
+                // Delega la eliminación al ViewModel, que borra tanto en Room como en Firebase.
+                productViewModel.deleteProduct(producto.id)
 
-                    productoDao.deleteProduct(producto)
-
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Producto eliminado",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
+                Toast.makeText(
+                    this@MainActivity,
+                    "Producto eliminado",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
             .setNegativeButton("Cancelar", null)
             .show()

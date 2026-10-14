@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.prorganics.prodelect.data.local.AppDatabase
 import com.prorganics.prodelect.data.local.dao.ProductoDao
+import com.prorganics.prodelect.data.remote.api.ProductApiService
 import com.prorganics.prodelect.data.repository.FirebaseRepository
 import com.prorganics.prodelect.data.repository.ProductRepository
 import dagger.Module
@@ -11,6 +12,8 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import retrofit2.Retrofit
+import retrofit2.converter.moshi.MoshiConverterFactory
 import javax.inject.Singleton
 
 /**
@@ -62,5 +65,28 @@ object AppModule {
     @Singleton
     fun provideFirebaseRepository(): FirebaseRepository {
         return FirebaseRepository()
+    }
+
+    /**
+     * Provee el motor de Retrofit configurado con Moshi y apuntando a nuestro servidor.
+     */
+    @Provides
+    @Singleton
+    fun provideRetrofit(): Retrofit {
+        return Retrofit.Builder()
+            // Confidencialidad: Siempre usar "https" para encriptar los datos en tránsito.
+            .baseUrl("https://mi-servidor-falso.com/")
+            // Le decimos a Retrofit que use Moshi para traducir los JSON a Kotlin
+            .addConverterFactory(MoshiConverterFactory.create())
+            .build()
+    }
+
+    /**
+     * Provee la interfaz de la API lista para ser usada en cualquier Repositorio.
+     */
+    @Provides
+    @Singleton
+    fun provideProductApiService(retrofit: Retrofit): ProductApiService {
+        return retrofit.create(ProductApiService::class.java)
     }
 }

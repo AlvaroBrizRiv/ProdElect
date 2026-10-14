@@ -50,6 +50,15 @@ class ProductRepository(private val productoDao: ProductoDao) {
     }
 
     /**
+     * Inserta una lista de productos en lote.
+     */
+    suspend fun insertProducts(products: List<ProductEntity>) {
+        withContext(Dispatchers.IO) {
+            productoDao.insertProducts(products)
+        }
+    }
+
+    /**
      * Actualiza la información de un producto existente.
      */
     suspend fun updateProduct(product: ProductEntity) {
@@ -64,6 +73,15 @@ class ProductRepository(private val productoDao: ProductoDao) {
     suspend fun deleteProduct(product: ProductEntity) {
         withContext(Dispatchers.IO) {
             productoDao.deleteProduct(product)
+        }
+    }
+
+    /**
+     * Elimina todos los productos de la base de datos.
+     */
+    suspend fun deleteAllProducts() {
+        withContext(Dispatchers.IO) {
+            productoDao.deleteAllProducts()
         }
     }
 }

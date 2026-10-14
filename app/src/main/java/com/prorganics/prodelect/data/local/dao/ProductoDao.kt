@@ -25,6 +25,12 @@ interface ProductoDao {
     suspend fun insertProduct(product: ProductEntity)
 
     /**
+     * Inserta una lista de productos en una sola transacción.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertProducts(products: List<ProductEntity>)
+
+    /**
      * Consulta todos los productos.
      * Retorna un Flow de Kotlin para proveer actualizaciones reactivas en tiempo real.
      */
@@ -48,4 +54,10 @@ interface ProductoDao {
      */
     @Delete
     suspend fun deleteProduct(product: ProductEntity)
+
+    /**
+     * Elimina todos los productos de la tabla.
+     */
+    @Query("DELETE FROM products")
+    suspend fun deleteAllProducts()
 }

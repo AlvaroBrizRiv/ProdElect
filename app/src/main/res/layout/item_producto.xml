@@ -1,10 +1,10 @@
-<androidx.constraintlayout.widget.ConstraintLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_margin="8dp"
-    android:padding="16dp">
+    android:padding="15dp">
 
     <!-- Nombre del producto -->
     <TextView
@@ -14,8 +14,8 @@
         android:text="Nombre del producto"
         android:textSize="18sp"
         android:textStyle="bold"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
     <!-- Descripcion del producto -->
@@ -25,8 +25,8 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:text="Descripcion del producto"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvNombreProducto" />
 
     <!-- Cantidad del producto -->
@@ -56,8 +56,8 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:text="Proveedor: Sin proveedor"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvCantidadProducto" />
 
     <!-- Boton Eliminar -->
@@ -68,9 +68,9 @@
         android:layout_marginStart="8dp"
         android:layout_marginTop="12dp"
         android:text="Eliminar"
-        app:layout_constraintTop_toBottomOf="@id/tvProveedorProducto"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent" />
+        app:layout_constraintTop_toBottomOf="@id/tvProveedorProducto" />
 
     <!-- Boton Editar -->
     <Button
@@ -78,9 +78,11 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
+        android:layout_marginEnd="32dp"
         android:text="Editar"
-        app:layout_constraintTop_toTopOf="@id/btnEliminarProducto"
         app:layout_constraintBottom_toBottomOf="@id/btnEliminarProducto"
-        app:layout_constraintEnd_toStartOf="@id/btnEliminarProducto" />
+        app:layout_constraintEnd_toStartOf="@id/btnEliminarProducto"
+        app:layout_constraintTop_toTopOf="@id/btnEliminarProducto"
+        app:layout_constraintVertical_bias="1.0" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
