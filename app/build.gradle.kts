@@ -85,4 +85,13 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+
+    // Retrofit para HTTP
+    implementation(libs.retrofit)
+    // Conversor que une Retrofit con Moshi
+    implementation(libs.retrofit.converter.moshi)
+    // Moshi para procesar JSON
+    implementation(libs.moshi)
+    // KSP generará el código de Moshi súper rápido (Rendimiento)
+    ksp(libs.moshi.codegen)
 }
