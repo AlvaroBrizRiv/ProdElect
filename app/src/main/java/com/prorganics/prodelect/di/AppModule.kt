@@ -1,62 +1,89 @@
+
 package com.prorganics.prodelect.di
 
 import android.content.Context
-import androidx.room.Room
+
 import com.prorganics.prodelect.data.local.AppDatabase
 import com.prorganics.prodelect.data.local.dao.ProductoDao
-import com.prorganics.prodelect.data.repository.FirebaseRepository
+import com.prorganics.prodelect.data.local.dao.PendingSyncDao
 import com.prorganics.prodelect.data.repository.ProductRepository
+import com.prorganics.prodelect.data.repository.FirebaseRepository
+
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+
 import javax.inject.Singleton
 
 /**
- * Módulo de Inyección de Dependencias de Hilt.
+ * Modulo de inyeccion de dependencias de ProdElect.
  *
- * InstallIn(SingletonComponent::class) significa que las dependencias
- * aquí provistas vivirán el mismo tiempo que la aplicación (Singleton).
+ * Proporciona la base de datos Room, los DAO
+ * y los repositorios de datos locales y remotos.
+ *
+ * Incluye soporte para la cola de operaciones
+ * pendientes de sincronizacion.
  */
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
     /**
-     * Provee la instancia Singleton de la Base de Datos de Room.
+     * Proporciona una instancia unica de Room.
+     *
+     * Utiliza AppDatabase.getDatabase() para
+     * aplicar la migracion de la version 1 a la 2.
      */
     @Provides
     @Singleton
-    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
-        return Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            "prodelect_database"
-        )
-        // .fallbackToDestructiveMigration() // Opcional: útil durante el desarrollo inicial
-        .build()
+    fun provideAppDatabase(
+        @ApplicationContext context: Context
+    ): AppDatabase {
+        return AppDatabase.getDatabase(context)
     }
 
     /**
-     * Provee el DAO de Productos, requerido por el repositorio local.
+     * Proporciona el DAO de productos locales.
      */
     @Provides
-    fun provideProductoDao(database: AppDatabase): ProductoDao {
+    fun provideProductoDao(
+        database: AppDatabase
+    ): ProductoDao {
         return database.productoDao()
     }
 
     /**
-     * Provee el Repositorio de la Base de Datos Local.
+     * Proporciona el DAO de operaciones pendientes.
      */
     @Provides
-    @Singleton
-    fun provideProductRepository(productoDao: ProductoDao): ProductRepository {
-        return ProductRepository(productoDao)
+    fun providePendingSyncDao(
+        database: AppDatabase
+    ): PendingSyncDao {
+        return database.pendingSyncDao()
     }
 
     /**
-     * Provee el Repositorio de Firebase.
+     * Proporciona el repositorio local de productos.
+     */
+
+    @Provides
+    @Singleton
+    fun provideProductRepository(
+        productoDao: ProductoDao,
+        pendingSyncDao: PendingSyncDao,
+        database: AppDatabase
+    ): ProductRepository {
+        return ProductRepository(
+            productoDao,
+            pendingSyncDao,
+            database
+        )
+    }
+
+    /**
+     * Proporciona el repositorio de Firebase.
      */
     @Provides
     @Singleton

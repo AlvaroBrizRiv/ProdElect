@@ -1,44 +1,107 @@
+
 package com.prorganics.prodelect.data.repository
 
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
+import com.prorganics.prodelect.data.local.entity.ProductEntity
 import com.prorganics.prodelect.data.remote.entity.ProductFirebase
 import kotlinx.coroutines.tasks.await
 
 /**
- * Repositorio para manejar las operaciones con Firebase Firestore.
- * 
- * Sigue el patrón Repository para abstraer el origen de los datos de la UI.
+ * Repositorio remoto de ProdElect.
+ *
+ * Gestiona las operaciones de productos
+ * en Cloud Firestore.
  */
 class FirebaseRepository {
 
-    // Inicializar la instancia de Firestore
     private val db = FirebaseFirestore.getInstance()
-    // Referencia a la colección 'productos'
-    private val productosCollection = db.collection("productos")
+
+    private val productosCollection =
+        db.collection("productos")
 
     /**
-     * Agrega un producto de prueba a la colección 'productos'.
-     * Utiliza corrutinas y la función de extensión 'await()' para manejar
-     * la tarea de Firebase de forma síncrona dentro de la corrutina.
+     * Convierte un producto local al formato de Firebase.
+     */
+    private fun convertirAFirebase(
+        producto: ProductEntity
+    ): ProductFirebase {
+        return ProductFirebase(
+            id = producto.id,
+            nombre = producto.nombre,
+            descripcion = producto.descripcion,
+            cantidad = producto.cantidad,
+            precio = producto.precio,
+            proveedor = producto.proveedor
+        )
+    }
+
+    /**
+     * Crea o actualiza un producto en Firestore
+     * utilizando el mismo ID de SQLite.
+     */
+    suspend fun guardarProducto(
+        producto: ProductEntity
+    ) {
+        val productoFirebase = convertirAFirebase(producto)
+
+        productosCollection
+            .document(producto.id)
+            .set(productoFirebase)
+            .await()
+
+        Log.d(
+            "FirebaseRepository",
+            "Producto sincronizado: ${producto.id}"
+        )
+    }
+
+    /**
+     * Elimina un producto remoto mediante su ID.
+     */
+    suspend fun eliminarProducto(
+        productId: String
+    ) {
+        productosCollection
+            .document(productId)
+            .delete()
+            .await()
+
+        Log.d(
+            "FirebaseRepository",
+            "Producto eliminado: $productId"
+        )
+    }
+
+    /**
+     * Metodo de prueba original.
+     * Se conserva para mantener compatibilidad.
      */
     suspend fun agregarProductoDePrueba() {
-        // Crear un objeto ProductFirebase con datos dummy
         val productoDePrueba = ProductFirebase(
             nombre = "Microcontrolador ESP32",
-            descripcion = "Módulo Wi-Fi + Bluetooth para proyectos IoT",
+            descripcion = "Modulo Wi-Fi + Bluetooth para proyectos IoT",
             cantidad = 50,
             precio = 12.50,
             proveedor = "ElecSupplies Inc."
         )
 
         try {
-            // Se usa document() sin argumentos para que Firestore genere un ID automático.
-            // set() escribe el objeto en el documento.
-            productosCollection.document().set(productoDePrueba).await()
-            Log.d("FirebaseRepository", "✅ ¡Producto de prueba añadido exitosamente a Firestore!")
+            productosCollection
+                .document()
+                .set(productoDePrueba)
+                .await()
+
+            Log.d(
+                "FirebaseRepository",
+                "Producto de prueba agregado a Firestore"
+            )
         } catch (e: Exception) {
-            Log.e("FirebaseRepository", "❌ Error al añadir el producto de prueba", e)
+            Log.e(
+                "FirebaseRepository",
+                "Error al agregar producto de prueba",
+                e
+            )
         }
     }
 }

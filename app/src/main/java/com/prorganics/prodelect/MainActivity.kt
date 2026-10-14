@@ -17,12 +17,14 @@ import com.prorganics.prodelect.data.local.entity.ProductEntity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import java.util.UUID
+import com.prorganics.prodelect.data.repository.ProductRepository
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private lateinit var productoAdapter: ProductoAdapter
     private lateinit var productoDao: ProductoDao
+    private lateinit var productRepository: ProductRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,8 +42,17 @@ class MainActivity : ComponentActivity() {
             findViewById<SearchView>(R.id.searchViewProductos)
 
         // Inicializar base de datos Room
+
         val database = AppDatabase.getDatabase(this)
+
         productoDao = database.productoDao()
+
+        productRepository = ProductRepository(
+            productoDao,
+            database.pendingSyncDao(),
+            database
+        )
+
 
         // Configurar adaptador del RecyclerView
         productoAdapter = ProductoAdapter(
@@ -198,7 +209,7 @@ class MainActivity : ComponentActivity() {
                         if (productoExistente == null) {
 
                             // Insertar nuevo producto
-                            productoDao.insertProduct(producto)
+                            productRepository.insertProduct(producto)
 
                             Toast.makeText(
                                 this@MainActivity,
@@ -209,7 +220,7 @@ class MainActivity : ComponentActivity() {
                         } else {
 
                             // Actualizar producto existente
-                            productoDao.updateProduct(producto)
+                            productRepository.updateProduct(producto)
 
                             Toast.makeText(
                                 this@MainActivity,
@@ -238,7 +249,7 @@ class MainActivity : ComponentActivity() {
 
                 lifecycleScope.launch {
 
-                    productoDao.deleteProduct(producto)
+                    productRepository.deleteProduct(producto)
 
                     Toast.makeText(
                         this@MainActivity,

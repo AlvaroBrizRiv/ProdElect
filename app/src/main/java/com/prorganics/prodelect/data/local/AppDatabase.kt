@@ -1,48 +1,75 @@
+
 package com.prorganics.prodelect.data.local
 
 import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.prorganics.prodelect.data.local.dao.ProductoDao
+import com.prorganics.prodelect.data.local.dao.PendingSyncDao
 import com.prorganics.prodelect.data.local.entity.ProductEntity
+import com.prorganics.prodelect.data.local.entity.PendingSyncEntity
 
 /**
- * Configuración principal de la Base de Datos Room.
- * Almacena las entidades y la versión para mantener un control estricto de las migraciones
- * y la estructura (Escalabilidad e Integridad).
+ * Base de datos local de ProdElect.
+ *
+ * Versión 2:
+ * Incorpora la tabla pending_sync para almacenar
+ * operaciones pendientes de sincronización.
  */
 @Database(
-    entities = [ProductEntity::class],
-    version = 1,
-    exportSchema = false // Oculta detalles del esquema en compilaciones, añadiendo privacidad
+    entities = [
+        ProductEntity::class,
+        PendingSyncEntity::class
+    ],
+    version = 2,
+    exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
-    // Exponemos el DAO para poder realizar operaciones
     abstract fun productoDao(): ProductoDao
 
+    abstract fun pendingSyncDao(): PendingSyncDao
+
     companion object {
-        // Asegura que los cambios en INSTANCE sean inmediatamente visibles en todos los hilos
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
         /**
-         * Obtiene la instancia única de la base de datos utilizando el patrón Singleton.
-         * Centralizar el acceso maximiza el rendimiento y previene conflictos (Disponibilidad).
+         * Migración de la versión 1 a la versión 2.
+         *
+         * Crea la tabla de operaciones pendientes
+         * sin eliminar los productos existentes.
          */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `pending_sync` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `productId` TEXT NOT NULL,
+                        `operation` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
-            // Retorna la instancia existente, o bien la crea sincronizadamente
             return INSTANCE ?: synchronized(this) {
+
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "prodelect_database"
                 )
-                // Nota de seguridad: Para producción, se puede integrar SQLCipher aquí
-                // si los productos contienen información sensible (Confidencialidad).
-                .build()
-                
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
+
                 INSTANCE = instance
                 instance
             }
