@@ -18,9 +18,14 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import java.util.UUID
 import com.prorganics.prodelect.data.repository.ProductRepository
+import com.prorganics.prodelect.sync.SyncManager
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var syncManager: SyncManager
 
     private lateinit var productoAdapter: ProductoAdapter
     private lateinit var productoDao: ProductoDao
