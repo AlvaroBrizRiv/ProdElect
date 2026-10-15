@@ -2,6 +2,7 @@
 package com.prorganics.prodelect
 
 import android.os.Bundle
+import android.util.Log
 import android.widget.EditText
 import android.widget.SearchView
 import android.widget.Toast
@@ -14,11 +15,12 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.prorganics.prodelect.data.local.AppDatabase
 import com.prorganics.prodelect.data.local.dao.ProductoDao
 import com.prorganics.prodelect.data.local.entity.ProductEntity
+import com.prorganics.prodelect.data.repository.FirebaseRepository
+import com.prorganics.prodelect.data.repository.ProductRepository
+import com.prorganics.prodelect.sync.SyncManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import java.util.UUID
-import com.prorganics.prodelect.data.repository.ProductRepository
-import com.prorganics.prodelect.sync.SyncManager
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -47,7 +49,6 @@ class MainActivity : ComponentActivity() {
             findViewById<SearchView>(R.id.searchViewProductos)
 
         // Inicializar base de datos Room
-
         val database = AppDatabase.getDatabase(this)
 
         productoDao = database.productoDao()
@@ -58,8 +59,45 @@ class MainActivity : ComponentActivity() {
             database
         )
 
+        // =====================================================
+        // PRUEBA TEMPORAL: CONSULTAR FIREBASE SIN MODIFICAR DATOS
+        // =====================================================
 
-        // Configurar adaptador del RecyclerView
+        Log.d(
+            "PruebaFirebase",
+            "INICIO DE PRUEBA FIREBASE"
+        )
+
+        lifecycleScope.launch {
+            try {
+                Log.d(
+                    "PruebaFirebase",
+                    "Consultando documento del Teclado Logitech K120..."
+                )
+
+                val existe = FirebaseRepository()
+                    .verificarExistenciaProducto(
+                        "5a4181c9-95b4-48bf-b9f6-ed85d347649"
+                    )
+
+                Log.d(
+                    "PruebaFirebase",
+                    "Teclado Logitech K120 existe en Firestore: $existe"
+                )
+
+            } catch (e: Exception) {
+                Log.e(
+                    "PruebaFirebase",
+                    "Error al consultar Firestore",
+                    e
+                )
+            }
+        }
+
+        // =====================================================
+        // CONFIGURAR ADAPTADOR DEL RECYCLERVIEW
+        // =====================================================
+
         productoAdapter = ProductoAdapter(
             onEditar = { producto ->
                 mostrarDialogoProducto(producto)
@@ -101,7 +139,10 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    // Diálogo para agregar o editar productos
+    // =====================================================
+    // DIÁLOGO PARA AGREGAR O EDITAR PRODUCTOS
+    // =====================================================
+
     private fun mostrarDialogoProducto(
         productoExistente: ProductEntity? = null
     ) {
@@ -213,7 +254,7 @@ class MainActivity : ComponentActivity() {
 
                         if (productoExistente == null) {
 
-                            // Insertar nuevo producto
+                            // Insertar nuevo producto en Room
                             productRepository.insertProduct(producto)
 
                             Toast.makeText(
@@ -242,7 +283,10 @@ class MainActivity : ComponentActivity() {
         dialog.show()
     }
 
-    // Confirmación antes de eliminar un producto
+    // =====================================================
+    // CONFIRMACIÓN ANTES DE ELIMINAR PRODUCTOS
+    // =====================================================
+
     private fun confirmarEliminacion(
         producto: ProductEntity
     ) {

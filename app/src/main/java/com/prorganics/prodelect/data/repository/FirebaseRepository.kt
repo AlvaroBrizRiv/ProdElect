@@ -104,4 +104,17 @@ class FirebaseRepository {
             )
         }
     }
+    suspend fun verificarExistenciaProducto(productId: String): Boolean {
+        val documento = productosCollection
+            .document(productId)
+            .get()
+            .await()
+
+        Log.d(
+            "FirebaseRepository",
+            "Producto $productId existe en Firestore: ${documento.exists()}"
+        )
+
+        return documento.exists()
+    }
 }
