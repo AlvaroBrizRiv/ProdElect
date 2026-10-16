@@ -79,42 +79,18 @@ class MainActivity : ComponentActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = productoAdapter
 
-        // Observar productos almacenados en Room.
-        // La lista local es la fuente de datos de esta pantalla.
+        // Observar el inventario de Firebase filtrado en tiempo real
         lifecycleScope.launch {
-            productViewModel.productos.collect { productos ->
-                productoAdapter.actualizarProductos(productos)
-            }
-        }
-
-
-        // PRUEBA: recibir productos de Firebase y guardarlos en SQLite.
-        lifecycleScope.launch {
-            productViewModel.productosNube.collect { productosNube ->
-
-                Log.d(
-                    "MainActivity",
-                    "Productos observados en Firebase: ${productosNube.size}"
-                )
-
-                // La primera emision del StateFlow puede estar vacia.
-                // En esta prueba solo procesamos listas con productos.
-                if (productosNube.isNotEmpty()) {
-                    try {
-                        remoteSyncManager.actualizarDesdeFirebase(productosNube)
-
-                        Log.d(
-                            "PruebaBidireccional",
-                            "Firebase -> SQLite: ${productosNube.size} productos recibidos"
-                        )
-
-                    } catch (e: Exception) {
-                        Log.e(
-                            "PruebaBidireccional",
-                            "Error al recibir productos de Firebase",
-                            e
-                        )
-                    }
+            productViewModel.productosFiltrados.collect { productosFirebase ->
+                val listaMapeada = productosFirebase.map { firebaseProd ->
+                    ProductEntity(
+                        id = firebaseProd.id.ifEmpty { UUID.randomUUID().toString() },
+                        nombre = firebaseProd.nombre,
+                        descripcion = firebaseProd.descripcion,
+                        cantidad = firebaseProd.cantidad,
+                        precio = firebaseProd.precio,
+                        proveedor = firebaseProd.proveedor
+                    )
                 }
             }
         }
@@ -142,17 +118,13 @@ class MainActivity : ComponentActivity() {
         searchView.setOnQueryTextListener(
             object : SearchView.OnQueryTextListener {
 
-                override fun onQueryTextSubmit(
-                    query: String?
-                ): Boolean {
-                    productoAdapter.filtrar(query.orEmpty())
+                override fun onQueryTextSubmit(query: String?): Boolean {
+                    productViewModel.actualizarBusqueda(query.orEmpty())
                     return true
                 }
 
-                override fun onQueryTextChange(
-                    newText: String?
-                ): Boolean {
-                    productoAdapter.filtrar(newText.orEmpty())
+                override fun onQueryTextChange(newText: String?): Boolean {
+                    productViewModel.actualizarBusqueda(newText.orEmpty())
                     return true
                 }
             }
