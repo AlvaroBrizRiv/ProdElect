@@ -20,6 +20,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
+import com.prorganics.prodelect.sync.RemoteSyncManager
+import com.prorganics.prodelect.sync.NetworkSyncObserver
 
 /**
  * Actividad principal de ProdElect.
@@ -37,12 +39,21 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var syncManager: SyncManager
 
+    @Inject
+    lateinit var remoteSyncManager: RemoteSyncManager
+
+    @Inject
+    lateinit var networkSyncObserver: NetworkSyncObserver
+
     private val productViewModel: ProductViewModel by viewModels()
 
     private lateinit var productoAdapter: ProductoAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Detectar internet y enviar operaciones pendientes
+        networkSyncObserver.iniciar(lifecycleScope)
 
         setContentView(R.layout.activity_main)
 
@@ -76,17 +87,44 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Conservar la observación de Firebase en tiempo real.
-        // Solo registramos los cambios por ahora, sin reemplazar
-        // los productos locales ni generar nuevas operaciones.
+
+        // PRUEBA: recibir productos de Firebase y guardarlos en SQLite.
         lifecycleScope.launch {
             productViewModel.productosNube.collect { productosNube ->
+
                 Log.d(
                     "MainActivity",
                     "Productos observados en Firebase: ${productosNube.size}"
                 )
+
+                // La primera emision del StateFlow puede estar vacia.
+                // En esta prueba solo procesamos listas con productos.
+                if (productosNube.isNotEmpty()) {
+                    try {
+                        remoteSyncManager.actualizarDesdeFirebase(productosNube)
+
+                        Log.d(
+                            "PruebaBidireccional",
+                            "Firebase -> SQLite: ${productosNube.size} productos recibidos"
+                        )
+
+                    } catch (e: Exception) {
+                        Log.e(
+                            "PruebaBidireccional",
+                            "Error al recibir productos de Firebase",
+                            e
+                        )
+                    }
+                }
             }
         }
+
+        // SINCRONIZACION REMOTA PENDIENTE DE ACTIVACION
+        // RemoteSyncManager recibira los productos desde Firebase
+        // y los incorporara a SQLite respetando pending_sync.
+        //
+        // No ejecutar aun actualizarDesdeFirebase() hasta validar
+        // el origen de los datos remotos y la proteccion de cambios locales.
 
         // Conservar la descarga JSON / REST del equipo.
         // La URL del servicio debe configurarse correctamente
@@ -283,5 +321,9 @@ class MainActivity : ComponentActivity() {
             }
             .setNegativeButton("Cancelar", null)
             .show()
+    }
+    override fun onDestroy() {
+        networkSyncObserver.detener()
+        super.onDestroy()
     }
 }

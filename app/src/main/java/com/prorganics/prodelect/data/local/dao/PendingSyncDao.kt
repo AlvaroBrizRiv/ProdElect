@@ -30,4 +30,18 @@ interface PendingSyncDao {
     // Consultar cuántas operaciones siguen pendientes.
     @Query("SELECT COUNT(*) FROM pending_sync")
     suspend fun countPending(): Int
+
+    /**
+     * Comprueba si un producto tiene operaciones locales
+     * pendientes de sincronización con Firebase.
+     *
+     * Evita sobrescribir cambios locales todavía
+     * no enviados.
+     */
+    @Query("""
+        SELECT COUNT(*)
+        FROM pending_sync
+        WHERE productId = :productId
+    """)
+    suspend fun countPendingByProductId(productId: String): Int
 }
