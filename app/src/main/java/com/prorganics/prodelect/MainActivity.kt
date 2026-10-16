@@ -9,7 +9,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -81,16 +83,19 @@ class MainActivity : ComponentActivity() {
 
         // Observar el inventario de Firebase filtrado en tiempo real
         lifecycleScope.launch {
-            productViewModel.productosFiltrados.collect { productosFirebase ->
-                val listaMapeada = productosFirebase.map { firebaseProd ->
-                    ProductEntity(
-                        id = firebaseProd.id.ifEmpty { UUID.randomUUID().toString() },
-                        nombre = firebaseProd.nombre,
-                        descripcion = firebaseProd.descripcion,
-                        cantidad = firebaseProd.cantidad,
-                        precio = firebaseProd.precio,
-                        proveedor = firebaseProd.proveedor
-                    )
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                productViewModel.productosFiltrados.collect { productosFirebase ->
+                    val listaMapeada = productosFirebase.map { firebaseProd ->
+                        ProductEntity(
+                            id = firebaseProd.id.ifEmpty { UUID.randomUUID().toString() },
+                            nombre = firebaseProd.nombre,
+                            descripcion = firebaseProd.descripcion,
+                            cantidad = firebaseProd.cantidad,
+                            precio = firebaseProd.precio,
+                            proveedor = firebaseProd.proveedor
+                        )
+                        }
+                    productoAdapter.actualizarProductos(listaMapeada)
                 }
             }
         }

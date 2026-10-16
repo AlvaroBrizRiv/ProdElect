@@ -12,15 +12,31 @@ import com.google.firebase.firestore.IgnoreExtraProperties
  * - @IgnoreExtraProperties: Evita bloqueos y errores de parsing si se añaden campos adicionales en la nube (escalabilidad).
  * - @DocumentId: Sirve para mapear el ID del documento en Firestore al campo local.
  */
+import com.google.firebase.firestore.PropertyName
+
 @IgnoreExtraProperties
 data class ProductFirebase(
     @DocumentId
     var id: String = "",
-    
+
+    @get:PropertyName("nombre")
+    @set:PropertyName("nombre")
     var nombre: String = "",
+
+    @get:PropertyName("descripcion")
+    @set:PropertyName("descripcion")
     var descripcion: String = "",
+
+    @get:PropertyName("cantidad")
+    @set:PropertyName("cantidad")
     var cantidad: Int = 0,
+
+    @get:PropertyName("precio")
+    @set:PropertyName("precio")
     var precio: Double = 0.0,
+
+    @get:PropertyName("proveedor")
+    @set:PropertyName("proveedor")
     var proveedor: String = ""
 ) {
     // Constructor secundario para inicializar campos comunes de la base local y transformarlos a objeto de la nube.

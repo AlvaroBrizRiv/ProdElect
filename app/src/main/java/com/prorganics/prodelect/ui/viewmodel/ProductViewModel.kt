@@ -11,6 +11,7 @@ import com.prorganics.prodelect.data.remote.entity.ProductFirebase
 import com.prorganics.prodelect.data.repository.FirebaseRepository
 import com.prorganics.prodelect.data.repository.ProductRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * ViewModel principal de productos de ProdElect.
@@ -118,11 +120,8 @@ class ProductViewModel @Inject constructor(
     /**
      * Crear o actualizar un producto.
      *
-     * Guarda primero en Room y registra la operación
-     * correspondiente en pending_sync.
-     *
-     * No escribe directamente en Firebase para
-     * evitar duplicaciones con SyncManager.
+     * Guarda en Room y en Firebase directamente para reflejar los cambios
+     * de inmediato en ambas bases de datos.
      */
     fun saveProduct(
         id: String,
@@ -134,6 +133,7 @@ class ProductViewModel @Inject constructor(
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // 1. Guardar en Base de Datos Local (Room)
                 val producto = ProductEntity(
                     id = id,
                     nombre = name,
@@ -143,43 +143,33 @@ class ProductViewModel @Inject constructor(
                     proveedor = supplier
                 )
 
-                val productoExistente =
-                    repository.getProductById(id)
-
+                val productoExistente = repository.getProductById(id)
                 if (productoExistente == null) {
                     repository.insertProduct(producto)
-
-                    Log.d(
-                        "ProductViewModel",
-                        "Producto creado localmente: $id"
-                    )
+                    Log.d("ProductViewModel", "Producto creado localmente: $id")
                 } else {
                     repository.updateProduct(producto)
-
-                    Log.d(
-                        "ProductViewModel",
-                        "Producto actualizado localmente: $id"
-                    )
+                    Log.d("ProductViewModel", "Producto actualizado localmente: $id")
                 }
 
-                _mensajeErrorRed.value = null
-
-                Log.d(
-                    "ProductViewModel",
-                    "Operación registrada para sincronización"
+                // 2. Guardar en la Nube (Firestore) simultáneamente
+                val firebaseEntity = ProductFirebase(
+                    id = id,
+                    nombre = name,
+                    descripcion = description,
+                    cantidad = qty,
+                    precio = price,
+                    proveedor = supplier
                 )
+                firebaseRepository.setProducto(firebaseEntity)
+
+                _mensajeErrorRed.value = null
 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(
-                    "ProductViewModel",
-                    "Error al guardar producto",
-                    e
-                )
-
-                _mensajeErrorRed.value =
-                    "Error al guardar el producto: ${e.localizedMessage}"
+                Log.e("ProductViewModel", "Error al guardar producto", e)
+                _mensajeErrorRed.value = "Error al guardar el producto: ${e.localizedMessage}"
             }
         }
     }
@@ -187,42 +177,31 @@ class ProductViewModel @Inject constructor(
     /**
      * Eliminar producto.
      *
-     * Elimina de Room y registra DELETE
-     * en la cola de sincronización.
+     * Elimina tanto de Room (Local) como de Firebase (Nube)
+     * para asegurar la sincronización en tiempo real.
      */
     fun deleteProduct(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val producto =
-                    repository.getProductById(id)
-
+                // 1. Eliminar de Room
+                val producto = repository.getProductById(id)
                 if (producto != null) {
                     repository.deleteProduct(producto)
-
-                    Log.d(
-                        "ProductViewModel",
-                        "Producto eliminado localmente: $id"
-                    )
+                    Log.d("ProductViewModel", "Producto eliminado localmente: $id")
                 } else {
-                    Log.w(
-                        "ProductViewModel",
-                        "Producto no encontrado localmente: $id"
-                    )
+                    Log.w("ProductViewModel", "Producto no encontrado localmente: $id")
                 }
+
+                // 2. Eliminar de Firebase
+                firebaseRepository.deleteProducto(id)
 
                 _mensajeErrorRed.value = null
 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(
-                    "ProductViewModel",
-                    "Error al eliminar producto",
-                    e
-                )
-
-                _mensajeErrorRed.value =
-                    "Error al eliminar el producto: ${e.localizedMessage}"
+                Log.e("ProductViewModel", "Error al eliminar producto", e)
+                _mensajeErrorRed.value = "Error al eliminar el producto: ${e.localizedMessage}"
             }
         }
     }
