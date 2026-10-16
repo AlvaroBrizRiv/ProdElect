@@ -1,11 +1,19 @@
+
 package com.prorganics.prodelect.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.prorganics.prodelect.data.local.entity.ProductEntity
-import com.prorganics.prodelect.data.repository.ProductRepository
+import com.prorganics.prodelect.data.remote.api.ProductApiService
+import com.prorganics.prodelect.data.remote.api.ProductDto
+import com.prorganics.prodelect.data.remote.entity.ProductFirebase
 import com.prorganics.prodelect.data.repository.FirebaseRepository
+import com.prorganics.prodelect.data.repository.ProductRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -13,59 +21,246 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * ViewModel que actúa como enlace entre el Repositorio de datos y la UI (Jetpack Compose).
+ * ViewModel principal de productos de ProdElect.
  *
- * Principios aplicados:
- * - Unidirectional Data Flow (UDF): El estado fluye hacia abajo (UI) y los eventos fluyen hacia arriba (ViewModel).
- * - Lifecycle Awareness: Mantiene el estado persistente durante los cambios de configuración (rotación de pantalla).
- * - Reactividad y Disponibilidad: Se utiliza [StateFlow] para emitir siempre el último estado a la vista.
- * - Inyección de dependencias (Hilt): El @HiltViewModel inyecta automáticamente el ProductRepository y el FirebaseRepository.
+ * Integra:
+ * - Persistencia local con Room / SQLite
+ * - Operaciones pendientes para SyncManager
+ * - Lectura en tiempo real desde Firebase Firestore
+ * - Interoperabilidad JSON / REST mediante Retrofit
+ * - Manejo de estado reactivo con StateFlow
+ *
+ * Las operaciones de escritura se registran primero
+ * en Room. SyncManager realizará posteriormente
+ * la sincronización hacia Firebase.
  */
 @HiltViewModel
 class ProductViewModel @Inject constructor(
     private val repository: ProductRepository,
-    private val firebaseRepository: FirebaseRepository
+    private val firebaseRepository: FirebaseRepository,
+    private val apiService: ProductApiService
 ) : ViewModel() {
 
     /**
-     * Flujo de estado persistente (StateFlow) que contiene la lista de inventario.
-     * 
-     * Transforma el 'Flow' reactivo de la base de datos a un 'StateFlow' seguro para Compose.
-     * - `stateIn` convierte el Flow frío del Repositorio a un StateFlow caliente.
-     * - `SharingStarted.WhileSubscribed(5000)`: Optimización de memoria; suspende la consulta a la BD 
-     *   si la app se va a segundo plano por más de 5 segundos.
+     * Productos obtenidos de Firebase en tiempo real.
+     *
+     * Conserva la funcionalidad implementada
+     * por el equipo.
      */
-    val productos: StateFlow<List<ProductEntity>> = repository.getAllProducts()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val productosNube: StateFlow<List<ProductFirebase>> =
+        firebaseRepository.getAllProductosRealTime()
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
 
     /**
-     * Evento UI: Añadir un producto nuevo al inventario local.
+     * Productos almacenados localmente en Room.
+     *
+     * Permite observar cambios en SQLite.
      */
-    fun addProduct(name: String, description: String, qty: Int, price: Double, supplier: String) {
-        val newProduct = ProductEntity(
-            nombre = name,
-            descripcion = description,
-            cantidad = qty,
-            precio = price,
-            proveedor = supplier
-        )
-        
-        // Lanzamos la corrutina en el scope del ViewModel. Se destruye automáticamente si la UI se cierra.
-        viewModelScope.launch {
-            repository.insertProduct(newProduct)
+    val productos: StateFlow<List<ProductEntity>> =
+        repository.getAllProducts()
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
+
+    /**
+     * Catálogo externo obtenido mediante JSON / REST.
+     */
+    private val _catalogoExterno =
+        MutableStateFlow<List<ProductDto>>(emptyList())
+
+    val catalogoExterno: StateFlow<List<ProductDto>> =
+        _catalogoExterno
+
+    /**
+     * Mensajes de error para la interfaz.
+     */
+    private val _mensajeErrorRed =
+        MutableStateFlow<String?>(null)
+
+    val mensajeErrorRed: StateFlow<String?> =
+        _mensajeErrorRed
+
+    /**
+     * Crear o actualizar un producto.
+     *
+     * Guarda primero en Room y registra la operación
+     * correspondiente en pending_sync.
+     *
+     * No escribe directamente en Firebase para
+     * evitar duplicaciones con SyncManager.
+     */
+    fun saveProduct(
+        id: String,
+        name: String,
+        description: String,
+        qty: Int,
+        price: Double,
+        supplier: String
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val producto = ProductEntity(
+                    id = id,
+                    nombre = name,
+                    descripcion = description,
+                    cantidad = qty,
+                    precio = price,
+                    proveedor = supplier
+                )
+
+                val productoExistente =
+                    repository.getProductById(id)
+
+                if (productoExistente == null) {
+                    repository.insertProduct(producto)
+
+                    Log.d(
+                        "ProductViewModel",
+                        "Producto creado localmente: $id"
+                    )
+                } else {
+                    repository.updateProduct(producto)
+
+                    Log.d(
+                        "ProductViewModel",
+                        "Producto actualizado localmente: $id"
+                    )
+                }
+
+                _mensajeErrorRed.value = null
+
+                Log.d(
+                    "ProductViewModel",
+                    "Operación registrada para sincronización"
+                )
+
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(
+                    "ProductViewModel",
+                    "Error al guardar producto",
+                    e
+                )
+
+                _mensajeErrorRed.value =
+                    "Error al guardar el producto: ${e.localizedMessage}"
+            }
         }
     }
 
     /**
-     * Evento UI: Eliminar un producto.
+     * Eliminar producto.
+     *
+     * Elimina de Room y registra DELETE
+     * en la cola de sincronización.
      */
-    fun deleteProduct(product: ProductEntity) {
-        viewModelScope.launch {
-            repository.deleteProduct(product)
+    fun deleteProduct(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val producto =
+                    repository.getProductById(id)
+
+                if (producto != null) {
+                    repository.deleteProduct(producto)
+
+                    Log.d(
+                        "ProductViewModel",
+                        "Producto eliminado localmente: $id"
+                    )
+                } else {
+                    Log.w(
+                        "ProductViewModel",
+                        "Producto no encontrado localmente: $id"
+                    )
+                }
+
+                _mensajeErrorRed.value = null
+
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(
+                    "ProductViewModel",
+                    "Error al eliminar producto",
+                    e
+                )
+
+                _mensajeErrorRed.value =
+                    "Error al eliminar el producto: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    /**
+     * Método de inicialización de datos de prueba.
+     *
+     * DESACTIVADO POR SEGURIDAD.
+     *
+     * La implementación original eliminaba todos los
+     * productos de Firestore y de SQLite antes de
+     * insertar un producto de prueba.
+     *
+     * Se conserva el método para compatibilidad,
+     * pero sin ejecutar operaciones destructivas.
+     */
+    @Deprecated(
+        message = "Desactivado para proteger los datos compartidos"
+    )
+    fun prepopulateDatabase() {
+        Log.w(
+            "ProductViewModel",
+            "prepopulateDatabase desactivado: no se modificaron datos"
+        )
+    }
+
+    /**
+     * Consultar catálogo de un proveedor externo.
+     *
+     * Conserva la interoperabilidad JSON / REST
+     * desarrollada por el equipo.
+     */
+    fun descargarCatalogoProveedor() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                Log.d(
+                    "ProductViewModel",
+                    "Iniciando descarga del catálogo externo"
+                )
+
+                val catalogoTraidoDeInternet =
+                    apiService.getProductos()
+
+                _catalogoExterno.value =
+                    catalogoTraidoDeInternet
+
+                _mensajeErrorRed.value = null
+
+                Log.d(
+                    "ProductViewModel",
+                    "Catálogo externo descargado: " +
+                            "${catalogoTraidoDeInternet.size} productos"
+                )
+
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(
+                    "ProductViewModel",
+                    "Error al descargar catálogo externo",
+                    e
+                )
+
+                _mensajeErrorRed.value =
+                    "Error al conectar con el servidor: " +
+                            "${e.localizedMessage}"
+            }
         }
     }
 }

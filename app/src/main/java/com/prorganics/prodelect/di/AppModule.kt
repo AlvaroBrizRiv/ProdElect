@@ -2,40 +2,35 @@
 package com.prorganics.prodelect.di
 
 import android.content.Context
-
 import com.prorganics.prodelect.data.local.AppDatabase
 import com.prorganics.prodelect.data.local.dao.ProductoDao
 import com.prorganics.prodelect.data.local.dao.PendingSyncDao
-import com.prorganics.prodelect.data.repository.ProductRepository
+import com.prorganics.prodelect.data.remote.api.ProductApiService
 import com.prorganics.prodelect.data.repository.FirebaseRepository
-
+import com.prorganics.prodelect.data.repository.ProductRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-
+import retrofit2.Retrofit
+import retrofit2.converter.moshi.MoshiConverterFactory
 import javax.inject.Singleton
 
 /**
- * Modulo de inyeccion de dependencias de ProdElect.
+ * Módulo de dependencias de ProdElect.
  *
- * Proporciona la base de datos Room, los DAO
- * y los repositorios de datos locales y remotos.
- *
- * Incluye soporte para la cola de operaciones
- * pendientes de sincronizacion.
+ * Integra:
+ * - Room / SQLite
+ * - Cola de operaciones pendientes
+ * - Repositorios locales y Firebase
+ * - Retrofit / Moshi para JSON y REST
  */
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
-    /**
-     * Proporciona una instancia unica de Room.
-     *
-     * Utiliza AppDatabase.getDatabase() para
-     * aplicar la migracion de la version 1 a la 2.
-     */
+    // Base de datos local Room
     @Provides
     @Singleton
     fun provideAppDatabase(
@@ -44,9 +39,7 @@ object AppModule {
         return AppDatabase.getDatabase(context)
     }
 
-    /**
-     * Proporciona el DAO de productos locales.
-     */
+    // DAO de productos
     @Provides
     fun provideProductoDao(
         database: AppDatabase
@@ -54,9 +47,7 @@ object AppModule {
         return database.productoDao()
     }
 
-    /**
-     * Proporciona el DAO de operaciones pendientes.
-     */
+    // DAO de operaciones pendientes
     @Provides
     fun providePendingSyncDao(
         database: AppDatabase
@@ -64,10 +55,7 @@ object AppModule {
         return database.pendingSyncDao()
     }
 
-    /**
-     * Proporciona el repositorio local de productos.
-     */
-
+    // Repositorio de productos con persistencia local
     @Provides
     @Singleton
     fun provideProductRepository(
@@ -82,12 +70,33 @@ object AppModule {
         )
     }
 
-    /**
-     * Proporciona el repositorio de Firebase.
-     */
+    // Repositorio remoto de Firebase
     @Provides
     @Singleton
     fun provideFirebaseRepository(): FirebaseRepository {
         return FirebaseRepository()
+    }
+
+    // Retrofit para interoperabilidad JSON / REST
+    @Provides
+    @Singleton
+    fun provideRetrofit(): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl("https://mi-servidor-falso.com/")
+            .addConverterFactory(
+                MoshiConverterFactory.create()
+            )
+            .build()
+    }
+
+    // Servicio REST utilizado por ProductViewModel
+    @Provides
+    @Singleton
+    fun provideProductApiService(
+        retrofit: Retrofit
+    ): ProductApiService {
+        return retrofit.create(
+            ProductApiService::class.java
+        )
     }
 }

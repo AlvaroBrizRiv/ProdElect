@@ -13,10 +13,11 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 
 /**
- * Repositorio local de productos.
+ * Repositorio de productos de ProdElect.
  *
- * Registra las operaciones CRUD en Room y
- * guarda una operación pendiente de sincronización.
+ * Conserva las operaciones locales de Room, la cola
+ * de sincronización y los métodos de administración
+ * de productos incorporados por el equipo.
  */
 class ProductRepository(
     private val productoDao: ProductoDao,
@@ -24,20 +25,20 @@ class ProductRepository(
     private val database: AppDatabase
 ) {
 
+    // Consultar productos locales
     fun getAllProducts(): Flow<List<ProductEntity>> {
         return productoDao.getAllProducts()
             .flowOn(Dispatchers.IO)
     }
 
+    // Consultar producto por ID
     suspend fun getProductById(id: String): ProductEntity? {
         return withContext(Dispatchers.IO) {
             productoDao.getProductById(id)
         }
     }
 
-    /**
-     * Inserta un producto y registra su sincronización pendiente.
-     */
+    // Crear producto y registrar operación pendiente
     suspend fun insertProduct(product: ProductEntity) {
         withContext(Dispatchers.IO) {
             database.withTransaction {
@@ -53,9 +54,16 @@ class ProductRepository(
         }
     }
 
-    /**
-     * Actualiza un producto y registra su sincronización pendiente.
-     */
+    // Insertar múltiples productos.
+    // Se conserva el método incorporado por el equipo.
+    // No genera eventos de subida a Firebase.
+    suspend fun insertProducts(products: List<ProductEntity>) {
+        withContext(Dispatchers.IO) {
+            productoDao.insertProducts(products)
+        }
+    }
+
+    // Actualizar producto y registrar operación pendiente
     suspend fun updateProduct(product: ProductEntity) {
         withContext(Dispatchers.IO) {
             database.withTransaction {
@@ -71,9 +79,7 @@ class ProductRepository(
         }
     }
 
-    /**
-     * Elimina un producto localmente y registra la operación.
-     */
+    // Eliminar producto y registrar operación pendiente
     suspend fun deleteProduct(product: ProductEntity) {
         withContext(Dispatchers.IO) {
             database.withTransaction {
@@ -86,6 +92,15 @@ class ProductRepository(
                     )
                 )
             }
+        }
+    }
+
+    // Eliminar todos los productos locales.
+    // Operación administrativa peligrosa:
+    // no usar en pruebas con datos importantes.
+    suspend fun deleteAllProducts() {
+        withContext(Dispatchers.IO) {
+            productoDao.deleteAllProducts()
         }
     }
 }

@@ -7,36 +7,43 @@ import android.widget.EditText
 import android.widget.SearchView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import com.prorganics.prodelect.data.local.AppDatabase
-import com.prorganics.prodelect.data.local.dao.ProductoDao
 import com.prorganics.prodelect.data.local.entity.ProductEntity
-import com.prorganics.prodelect.data.repository.FirebaseRepository
-import com.prorganics.prodelect.data.repository.ProductRepository
 import com.prorganics.prodelect.sync.SyncManager
+import com.prorganics.prodelect.ui.viewmodel.ProductViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
+/**
+ * Actividad principal de ProdElect.
+ *
+ * Integra la interfaz del equipo con:
+ * - ProductViewModel
+ * - Room / SQLite
+ * - Lectura en tiempo real de Firestore
+ * - Cola de sincronización pendiente
+ * - Interoperabilidad JSON / REST
+ */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var syncManager: SyncManager
 
+    private val productViewModel: ProductViewModel by viewModels()
+
     private lateinit var productoAdapter: ProductoAdapter
-    private lateinit var productoDao: ProductoDao
-    private lateinit var productRepository: ProductRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Interfaz principal XML
         setContentView(R.layout.activity_main)
 
         val recyclerView =
@@ -48,56 +55,7 @@ class MainActivity : ComponentActivity() {
         val searchView =
             findViewById<SearchView>(R.id.searchViewProductos)
 
-        // Inicializar base de datos Room
-        val database = AppDatabase.getDatabase(this)
-
-        productoDao = database.productoDao()
-
-        productRepository = ProductRepository(
-            productoDao,
-            database.pendingSyncDao(),
-            database
-        )
-
-        // =====================================================
-        // PRUEBA TEMPORAL: CONSULTAR FIREBASE SIN MODIFICAR DATOS
-        // =====================================================
-
-        Log.d(
-            "PruebaFirebase",
-            "INICIO DE PRUEBA FIREBASE"
-        )
-
-        lifecycleScope.launch {
-            try {
-                Log.d(
-                    "PruebaFirebase",
-                    "Consultando documento del Teclado Logitech K120..."
-                )
-
-                val existe = FirebaseRepository()
-                    .verificarExistenciaProducto(
-                        "5a4181c9-95b4-48bf-b9f6-ed85d347649"
-                    )
-
-                Log.d(
-                    "PruebaFirebase",
-                    "Teclado Logitech K120 existe en Firestore: $existe"
-                )
-
-            } catch (e: Exception) {
-                Log.e(
-                    "PruebaFirebase",
-                    "Error al consultar Firestore",
-                    e
-                )
-            }
-        }
-
-        // =====================================================
-        // CONFIGURAR ADAPTADOR DEL RECYCLERVIEW
-        // =====================================================
-
+        // Configurar adaptador
         productoAdapter = ProductoAdapter(
             onEditar = { producto ->
                 mostrarDialogoProducto(producto)
@@ -110,64 +68,99 @@ class MainActivity : ComponentActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = productoAdapter
 
-        // Observar cambios en Room
+        // Observar productos almacenados en Room.
+        // La lista local es la fuente de datos de esta pantalla.
         lifecycleScope.launch {
-            productoDao.getAllProducts().collect { productos ->
+            productViewModel.productos.collect { productos ->
                 productoAdapter.actualizarProductos(productos)
             }
         }
 
-        // Botón para agregar productos
+        // Conservar la observación de Firebase en tiempo real.
+        // Solo registramos los cambios por ahora, sin reemplazar
+        // los productos locales ni generar nuevas operaciones.
+        lifecycleScope.launch {
+            productViewModel.productosNube.collect { productosNube ->
+                Log.d(
+                    "MainActivity",
+                    "Productos observados en Firebase: ${productosNube.size}"
+                )
+            }
+        }
+
+        // Conservar la descarga JSON / REST del equipo.
+        // La URL del servicio debe configurarse correctamente
+        // antes de validar la descarga.
+        if (savedInstanceState == null) {
+            productViewModel.descargarCatalogoProveedor()
+        }
+
+        // Agregar producto
         fabAgregar.setOnClickListener {
             mostrarDialogoProducto()
         }
 
-        // Buscador de productos en tiempo real
+        // Buscador de productos
         searchView.setOnQueryTextListener(
             object : SearchView.OnQueryTextListener {
 
-                override fun onQueryTextSubmit(query: String?): Boolean {
+                override fun onQueryTextSubmit(
+                    query: String?
+                ): Boolean {
                     productoAdapter.filtrar(query.orEmpty())
                     return true
                 }
 
-                override fun onQueryTextChange(newText: String?): Boolean {
+                override fun onQueryTextChange(
+                    newText: String?
+                ): Boolean {
                     productoAdapter.filtrar(newText.orEmpty())
                     return true
                 }
             }
         )
+
+        // No ejecutar automáticamente la sincronización
+        // hasta validar el funcionamiento del proyecto.
     }
 
-    // =====================================================
-    // DIÁLOGO PARA AGREGAR O EDITAR PRODUCTOS
-    // =====================================================
-
+    /**
+     * Formulario para agregar o editar productos.
+     */
     private fun mostrarDialogoProducto(
         productoExistente: ProductEntity? = null
     ) {
-
         val dialogView = layoutInflater.inflate(
             R.layout.dialog_producto,
             null
         )
 
         val etNombre =
-            dialogView.findViewById<EditText>(R.id.etNombreProducto)
+            dialogView.findViewById<EditText>(
+                R.id.etNombreProducto
+            )
 
         val etDescripcion =
-            dialogView.findViewById<EditText>(R.id.etDescripcionProducto)
+            dialogView.findViewById<EditText>(
+                R.id.etDescripcionProducto
+            )
 
         val etCantidad =
-            dialogView.findViewById<EditText>(R.id.etCantidadProducto)
+            dialogView.findViewById<EditText>(
+                R.id.etCantidadProducto
+            )
 
         val etPrecio =
-            dialogView.findViewById<EditText>(R.id.etPrecioProducto)
+            dialogView.findViewById<EditText>(
+                R.id.etPrecioProducto
+            )
 
         val etProveedor =
-            dialogView.findViewById<EditText>(R.id.etProveedorProducto)
+            dialogView.findViewById<EditText>(
+                R.id.etProveedorProducto
+            )
 
-        // Cargar datos del producto existente
+        // Cargar producto al editar
         productoExistente?.let { producto ->
             etNombre.setText(producto.nombre)
             etDescripcion.setText(producto.descripcion)
@@ -208,7 +201,7 @@ class MainActivity : ComponentActivity() {
                     val proveedor =
                         etProveedor.text.toString().trim()
 
-                    // Validar campos obligatorios
+                    // Validaciones
                     if (
                         nombre.isBlank() ||
                         descripcion.isBlank() ||
@@ -217,7 +210,6 @@ class MainActivity : ComponentActivity() {
                         precio == null ||
                         !precio.isFinite()
                     ) {
-
                         Toast.makeText(
                             this,
                             "Completa correctamente todos los campos",
@@ -227,9 +219,7 @@ class MainActivity : ComponentActivity() {
                         return@setOnClickListener
                     }
 
-                    // Validar cantidad y precio
                     if (cantidad < 0 || precio < 0) {
-
                         Toast.makeText(
                             this,
                             "Cantidad y precio no pueden ser negativos",
@@ -239,42 +229,28 @@ class MainActivity : ComponentActivity() {
                         return@setOnClickListener
                     }
 
-                    // Crear o actualizar entidad
-                    val producto = ProductEntity(
-                        id = productoExistente?.id
-                            ?: UUID.randomUUID().toString(),
-                        nombre = nombre,
-                        descripcion = descripcion,
-                        cantidad = cantidad,
-                        precio = precio,
-                        proveedor = proveedor
+                    val id = productoExistente?.id
+                        ?: UUID.randomUUID().toString()
+
+                    // Guardar mediante el ViewModel.
+                    // Este registra la operación en Room.
+                    productViewModel.saveProduct(
+                        id = id,
+                        name = nombre,
+                        description = descripcion,
+                        qty = cantidad,
+                        price = precio,
+                        supplier = proveedor
                     )
 
-                    lifecycleScope.launch {
-
-                        if (productoExistente == null) {
-
-                            // Insertar nuevo producto en Room
-                            productRepository.insertProduct(producto)
-
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Producto agregado",
-                                Toast.LENGTH_SHORT
-                            ).show()
-
-                        } else {
-
-                            // Actualizar producto existente
-                            productRepository.updateProduct(producto)
-
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Producto actualizado",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    }
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (productoExistente == null)
+                            "Guardado solicitado"
+                        else
+                            "Actualización solicitada",
+                        Toast.LENGTH_SHORT
+                    ).show()
 
                     dialog.dismiss()
                 }
@@ -283,29 +259,27 @@ class MainActivity : ComponentActivity() {
         dialog.show()
     }
 
-    // =====================================================
-    // CONFIRMACIÓN ANTES DE ELIMINAR PRODUCTOS
-    // =====================================================
-
+    /**
+     * Confirmar eliminación.
+     */
     private fun confirmarEliminacion(
         producto: ProductEntity
     ) {
-
         AlertDialog.Builder(this)
             .setTitle("Eliminar producto")
-            .setMessage("¿Deseas eliminar ${producto.nombre}?")
+            .setMessage(
+                "¿Deseas eliminar ${producto.nombre}?"
+            )
             .setPositiveButton("Eliminar") { _, _ ->
 
-                lifecycleScope.launch {
+                // El ViewModel registra DELETE en Room.
+                productViewModel.deleteProduct(producto.id)
 
-                    productRepository.deleteProduct(producto)
-
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Producto eliminado",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
+                Toast.makeText(
+                    this@MainActivity,
+                    "Eliminación solicitada",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
             .setNegativeButton("Cancelar", null)
             .show()
