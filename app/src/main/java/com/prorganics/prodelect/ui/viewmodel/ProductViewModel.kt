@@ -10,6 +10,7 @@ import com.prorganics.prodelect.data.repository.FirebaseRepository
 import com.prorganics.prodelect.data.repository.ProductRepository
 import kotlinx.coroutines.Dispatchers
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +48,36 @@ class ProductViewModel @Inject constructor(
                 started = SharingStarted.WhileSubscribed(5000),
                 initialValue = emptyList()
             )
+
+    /** Texto de búsqueda controlado por la pantalla principal. */
+    private val _consultaBusqueda = MutableStateFlow("")
+    val consultaBusqueda: StateFlow<String> = _consultaBusqueda
+
+    /**
+     * Inventario de Firebase filtrado de forma reactiva.
+     * Al cambiar la consulta o los productos, la lista se recalcula automáticamente.
+     */
+    val productosFiltrados: StateFlow<List<ProductFirebase>> =
+        combine(productosNube, _consultaBusqueda) { inventario, consulta ->
+            val texto = consulta.trim()
+            if (texto.isEmpty()) {
+                inventario
+            } else {
+                inventario.filter { producto ->
+                    producto.nombre.contains(texto, ignoreCase = true) ||
+                        producto.descripcion.contains(texto, ignoreCase = true) ||
+                        producto.proveedor.contains(texto, ignoreCase = true)
+                }
+            }
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    fun actualizarBusqueda(texto: String) {
+        _consultaBusqueda.value = texto
+    }
 
     /**
      * Flujo local de Room (Opcional, para la persistencia offline de contingencia)

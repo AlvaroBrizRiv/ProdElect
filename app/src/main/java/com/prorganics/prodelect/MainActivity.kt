@@ -60,9 +60,9 @@ class MainActivity : ComponentActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = productoAdapter
 
-        // Observar cambios en la Nube de Firebase en tiempo real
+        // Observar el inventario de Firebase filtrado en tiempo real
         lifecycleScope.launch {
-            productViewModel.productosNube.collect { productosFirebase ->
+            productViewModel.productosFiltrados.collect { productosFirebase ->
                 val listaMapeada = productosFirebase.map { firebaseProd ->
                     ProductEntity(
                         id = firebaseProd.id.ifEmpty { UUID.randomUUID().toString() },
@@ -87,12 +87,12 @@ class MainActivity : ComponentActivity() {
             object : SearchView.OnQueryTextListener {
 
                 override fun onQueryTextSubmit(query: String?): Boolean {
-                    productoAdapter.filtrar(query.orEmpty())
+                    productViewModel.actualizarBusqueda(query.orEmpty())
                     return true
                 }
 
                 override fun onQueryTextChange(newText: String?): Boolean {
-                    productoAdapter.filtrar(newText.orEmpty())
+                    productViewModel.actualizarBusqueda(newText.orEmpty())
                     return true
                 }
             }
