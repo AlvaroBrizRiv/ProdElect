@@ -2,41 +2,60 @@
 package com.prorganics.prodelect
 
 import android.os.Bundle
+import android.util.Log
 import android.widget.EditText
 import android.widget.SearchView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.prorganics.prodelect.data.local.entity.ProductEntity
+import com.prorganics.prodelect.sync.SyncManager
 import com.prorganics.prodelect.ui.viewmodel.ProductViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import java.util.UUID
-import androidx.activity.viewModels
+import javax.inject.Inject
+import com.prorganics.prodelect.sync.RemoteSyncManager
+import com.prorganics.prodelect.sync.NetworkSyncObserver
 
+/**
+ * Actividad principal de ProdElect.
+ *
+ * Integra la interfaz del equipo con:
+ * - ProductViewModel
+ * - Room / SQLite
+ * - Lectura en tiempo real de Firestore
+ * - Cola de sincronización pendiente
+ * - Interoperabilidad JSON / REST
+ */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    private lateinit var productoAdapter: ProductoAdapter
-    
-    // Inyectamos el ProductViewModel utilizando el delegado `by viewModels()` (Hilt)
+    @Inject
+    lateinit var syncManager: SyncManager
+
+    @Inject
+    lateinit var remoteSyncManager: RemoteSyncManager
+
+    @Inject
+    lateinit var networkSyncObserver: NetworkSyncObserver
+
     private val productViewModel: ProductViewModel by viewModels()
+
+    private lateinit var productoAdapter: ProductoAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        //Implementación Temporal ELIMINAR LUEGO.
-        productViewModel.descargarCatalogoProveedor()
+        // Detectar internet y enviar operaciones pendientes
+        networkSyncObserver.iniciar(lifecycleScope)
 
-        // Interfaz principal XML
         setContentView(R.layout.activity_main)
-
-        // Se eliminó la llamada a prepopulateDatabase() para evitar que elimine los productos
-        // que creas manualmente al girar la pantalla o iniciar la Actividad.
 
         val recyclerView =
             findViewById<RecyclerView>(R.id.recyclerViewProductos)
@@ -47,7 +66,7 @@ class MainActivity : ComponentActivity() {
         val searchView =
             findViewById<SearchView>(R.id.searchViewProductos)
 
-        // Configurar adaptador del RecyclerView
+        // Configurar adaptador
         productoAdapter = ProductoAdapter(
             onEditar = { producto ->
                 mostrarDialogoProducto(producto)
@@ -73,16 +92,29 @@ class MainActivity : ComponentActivity() {
                         proveedor = firebaseProd.proveedor
                     )
                 }
-                productoAdapter.actualizarProductos(listaMapeada)
             }
         }
 
-        // Botón para agregar productos
+        // SINCRONIZACION REMOTA PENDIENTE DE ACTIVACION
+        // RemoteSyncManager recibira los productos desde Firebase
+        // y los incorporara a SQLite respetando pending_sync.
+        //
+        // No ejecutar aun actualizarDesdeFirebase() hasta validar
+        // el origen de los datos remotos y la proteccion de cambios locales.
+
+        // Conservar la descarga JSON / REST del equipo.
+        // La URL del servicio debe configurarse correctamente
+        // antes de validar la descarga.
+        if (savedInstanceState == null) {
+            productViewModel.descargarCatalogoProveedor()
+        }
+
+        // Agregar producto
         fabAgregar.setOnClickListener {
             mostrarDialogoProducto()
         }
 
-        // Buscador de productos en tiempo real
+        // Buscador de productos
         searchView.setOnQueryTextListener(
             object : SearchView.OnQueryTextListener {
 
@@ -97,34 +129,48 @@ class MainActivity : ComponentActivity() {
                 }
             }
         )
+
+        // No ejecutar automáticamente la sincronización
+        // hasta validar el funcionamiento del proyecto.
     }
 
-    // Diálogo para agregar o editar productos
+    /**
+     * Formulario para agregar o editar productos.
+     */
     private fun mostrarDialogoProducto(
         productoExistente: ProductEntity? = null
     ) {
-
         val dialogView = layoutInflater.inflate(
             R.layout.dialog_producto,
             null
         )
 
         val etNombre =
-            dialogView.findViewById<EditText>(R.id.etNombreProducto)
+            dialogView.findViewById<EditText>(
+                R.id.etNombreProducto
+            )
 
         val etDescripcion =
-            dialogView.findViewById<EditText>(R.id.etDescripcionProducto)
+            dialogView.findViewById<EditText>(
+                R.id.etDescripcionProducto
+            )
 
         val etCantidad =
-            dialogView.findViewById<EditText>(R.id.etCantidadProducto)
+            dialogView.findViewById<EditText>(
+                R.id.etCantidadProducto
+            )
 
         val etPrecio =
-            dialogView.findViewById<EditText>(R.id.etPrecioProducto)
+            dialogView.findViewById<EditText>(
+                R.id.etPrecioProducto
+            )
 
         val etProveedor =
-            dialogView.findViewById<EditText>(R.id.etProveedorProducto)
+            dialogView.findViewById<EditText>(
+                R.id.etProveedorProducto
+            )
 
-        // Cargar datos del producto existente
+        // Cargar producto al editar
         productoExistente?.let { producto ->
             etNombre.setText(producto.nombre)
             etDescripcion.setText(producto.descripcion)
@@ -165,7 +211,7 @@ class MainActivity : ComponentActivity() {
                     val proveedor =
                         etProveedor.text.toString().trim()
 
-                    // Validar campos obligatorios
+                    // Validaciones
                     if (
                         nombre.isBlank() ||
                         descripcion.isBlank() ||
@@ -174,7 +220,6 @@ class MainActivity : ComponentActivity() {
                         precio == null ||
                         !precio.isFinite()
                     ) {
-
                         Toast.makeText(
                             this,
                             "Completa correctamente todos los campos",
@@ -184,9 +229,7 @@ class MainActivity : ComponentActivity() {
                         return@setOnClickListener
                     }
 
-                    // Validar cantidad y precio
                     if (cantidad < 0 || precio < 0) {
-
                         Toast.makeText(
                             this,
                             "Cantidad y precio no pueden ser negativos",
@@ -196,9 +239,11 @@ class MainActivity : ComponentActivity() {
                         return@setOnClickListener
                     }
 
-                    val id = productoExistente?.id ?: UUID.randomUUID().toString()
+                    val id = productoExistente?.id
+                        ?: UUID.randomUUID().toString()
 
-                    // Delega el guardado al ViewModel, que maneja tanto Room como Firebase.
+                    // Guardar mediante el ViewModel.
+                    // Este registra la operación en Room.
                     productViewModel.saveProduct(
                         id = id,
                         name = nombre,
@@ -210,7 +255,10 @@ class MainActivity : ComponentActivity() {
 
                     Toast.makeText(
                         this@MainActivity,
-                        if (productoExistente == null) "Producto agregado" else "Producto actualizado",
+                        if (productoExistente == null)
+                            "Guardado solicitado"
+                        else
+                            "Actualización solicitada",
                         Toast.LENGTH_SHORT
                     ).show()
 
@@ -221,26 +269,33 @@ class MainActivity : ComponentActivity() {
         dialog.show()
     }
 
-    // Confirmación antes de eliminar un producto
+    /**
+     * Confirmar eliminación.
+     */
     private fun confirmarEliminacion(
         producto: ProductEntity
     ) {
-
         AlertDialog.Builder(this)
             .setTitle("Eliminar producto")
-            .setMessage("¿Deseas eliminar ${producto.nombre}?")
+            .setMessage(
+                "¿Deseas eliminar ${producto.nombre}?"
+            )
             .setPositiveButton("Eliminar") { _, _ ->
 
-                // Delega la eliminación al ViewModel, que borra tanto en Room como en Firebase.
+                // El ViewModel registra DELETE en Room.
                 productViewModel.deleteProduct(producto.id)
 
                 Toast.makeText(
                     this@MainActivity,
-                    "Producto eliminado",
+                    "Eliminación solicitada",
                     Toast.LENGTH_SHORT
                 ).show()
             }
             .setNegativeButton("Cancelar", null)
             .show()
+    }
+    override fun onDestroy() {
+        networkSyncObserver.detener()
+        super.onDestroy()
     }
 }

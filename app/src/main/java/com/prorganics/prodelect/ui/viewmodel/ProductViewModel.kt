@@ -1,5 +1,7 @@
+
 package com.prorganics.prodelect.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.prorganics.prodelect.data.local.entity.ProductEntity
@@ -8,7 +10,6 @@ import com.prorganics.prodelect.data.remote.api.ProductDto
 import com.prorganics.prodelect.data.remote.entity.ProductFirebase
 import com.prorganics.prodelect.data.repository.FirebaseRepository
 import com.prorganics.prodelect.data.repository.ProductRepository
-import kotlinx.coroutines.Dispatchers
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,13 +20,18 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * ViewModel que actúa como enlace entre el Repositorio de datos y la UI (Jetpack Compose).
+ * ViewModel principal de productos de ProdElect.
  *
- * Principios aplicados:
- * - Unidirectional Data Flow (UDF): El estado fluye hacia abajo (UI) y los eventos fluyen hacia arriba (ViewModel).
- * - Lifecycle Awareness: Mantiene el estado persistente durante los cambios de configuración (rotación de pantalla).
- * - Reactividad y Disponibilidad: Se utiliza [StateFlow] para emitir siempre el último estado a la vista.
- * - Inyección de dependencias (Hilt): El @HiltViewModel inyecta automáticamente el ProductRepository y el FirebaseRepository.
+ * Integra:
+ * - Persistencia local con Room / SQLite
+ * - Operaciones pendientes para SyncManager
+ * - Lectura en tiempo real desde Firebase Firestore
+ * - Interoperabilidad JSON / REST mediante Retrofit
+ * - Manejo de estado reactivo con StateFlow
+ *
+ * Las operaciones de escritura se registran primero
+ * en Room. SyncManager realizará posteriormente
+ * la sincronización hacia Firebase.
  */
 @HiltViewModel
 class ProductViewModel @Inject constructor(
@@ -35,11 +41,10 @@ class ProductViewModel @Inject constructor(
 ) : ViewModel() {
 
     /**
-     * Flujo de estado persistente (StateFlow) que contiene la lista de inventario sincronizada desde FIRESTORE.
+     * Productos obtenidos de Firebase en tiempo real.
      *
-     * Transforma el 'Flow' reactivo de la base de datos de Firestore a un 'StateFlow' seguro para Compose.
-     * Usando 'firebaseRepository.getAllProductosRealTime()' garantizamos que cualquier cambio en la web u otros dispositivos
-     * se refleje instantáneamente en esta UI.
+     * Conserva la funcionalidad implementada
+     * por el equipo.
      */
     val productosNube: StateFlow<List<ProductFirebase>> =
         firebaseRepository.getAllProductosRealTime()
@@ -80,33 +85,44 @@ class ProductViewModel @Inject constructor(
     }
 
     /**
-     * Flujo local de Room (Opcional, para la persistencia offline de contingencia)
+     * Productos almacenados localmente en Room.
+     *
+     * Permite observar cambios en SQLite.
      */
-    val productos: StateFlow<List<ProductEntity>> = repository.getAllProducts()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val productos: StateFlow<List<ProductEntity>> =
+        repository.getAllProducts()
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
 
     /**
-     * Estado para el Catálogo de Proveedores Externos (Internet HTTP).
-     * Usamos MutableStateFlow porque nosotros vamos a empujar los datos hacia él
-     * una vez que el servidor nos responda.
+     * Catálogo externo obtenido mediante JSON / REST.
      */
-    private val _catalogoExterno = MutableStateFlow<List<ProductDto>>(emptyList())
-    val catalogoExterno: StateFlow<List<ProductDto>> = _catalogoExterno
+    private val _catalogoExterno =
+        MutableStateFlow<List<ProductDto>>(emptyList())
+
+    val catalogoExterno: StateFlow<List<ProductDto>> =
+        _catalogoExterno
 
     /**
-     * Estado para manejar errores de red o tiempos de carga (Loading).
-     * Vital para la experiencia de usuario (UX).
+     * Mensajes de error para la interfaz.
      */
-    private val _mensajeErrorRed = MutableStateFlow<String?>(null)
-    val mensajeErrorRed: StateFlow<String?> = _mensajeErrorRed
+    private val _mensajeErrorRed =
+        MutableStateFlow<String?>(null)
+
+    val mensajeErrorRed: StateFlow<String?> =
+        _mensajeErrorRed
 
     /**
-     * Evento UI: Guardar o Actualizar un producto en el inventario.
-     * Esto escribe la información simultáneamente en Room (Local) y Firestore (Nube).
+     * Crear o actualizar un producto.
+     *
+     * Guarda primero en Room y registra la operación
+     * correspondiente en pending_sync.
+     *
+     * No escribe directamente en Firebase para
+     * evitar duplicaciones con SyncManager.
      */
     fun saveProduct(
         id: String,
@@ -117,102 +133,162 @@ class ProductViewModel @Inject constructor(
         supplier: String
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Guardar en Base de Datos Local (Room)
-            val entity = ProductEntity(
-                id = id,
-                nombre = name,
-                descripcion = description,
-                cantidad = qty,
-                precio = price,
-                proveedor = supplier
-            )
-            repository.insertProduct(entity)
+            try {
+                val producto = ProductEntity(
+                    id = id,
+                    nombre = name,
+                    descripcion = description,
+                    cantidad = qty,
+                    precio = price,
+                    proveedor = supplier
+                )
 
-            // Guardar en la Nube (Firestore)
-            val firebaseEntity = ProductFirebase(
-                id = id,
-                nombre = name,
-                descripcion = description,
-                cantidad = qty,
-                precio = price,
-                proveedor = supplier
-            )
-            firebaseRepository.setProducto(firebaseEntity)
+                val productoExistente =
+                    repository.getProductById(id)
+
+                if (productoExistente == null) {
+                    repository.insertProduct(producto)
+
+                    Log.d(
+                        "ProductViewModel",
+                        "Producto creado localmente: $id"
+                    )
+                } else {
+                    repository.updateProduct(producto)
+
+                    Log.d(
+                        "ProductViewModel",
+                        "Producto actualizado localmente: $id"
+                    )
+                }
+
+                _mensajeErrorRed.value = null
+
+                Log.d(
+                    "ProductViewModel",
+                    "Operación registrada para sincronización"
+                )
+
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(
+                    "ProductViewModel",
+                    "Error al guardar producto",
+                    e
+                )
+
+                _mensajeErrorRed.value =
+                    "Error al guardar el producto: ${e.localizedMessage}"
+            }
         }
     }
 
     /**
-     * Evento UI: Eliminar un producto.
+     * Eliminar producto.
+     *
+     * Elimina de Room y registra DELETE
+     * en la cola de sincronización.
      */
     fun deleteProduct(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Eliminar de Room
-            repository.getProductById(id)?.let {
-                repository.deleteProduct(it)
+            try {
+                val producto =
+                    repository.getProductById(id)
+
+                if (producto != null) {
+                    repository.deleteProduct(producto)
+
+                    Log.d(
+                        "ProductViewModel",
+                        "Producto eliminado localmente: $id"
+                    )
+                } else {
+                    Log.w(
+                        "ProductViewModel",
+                        "Producto no encontrado localmente: $id"
+                    )
+                }
+
+                _mensajeErrorRed.value = null
+
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(
+                    "ProductViewModel",
+                    "Error al eliminar producto",
+                    e
+                )
+
+                _mensajeErrorRed.value =
+                    "Error al eliminar el producto: ${e.localizedMessage}"
             }
-            // Eliminar de Firebase
-            firebaseRepository.deleteProducto(id)
         }
     }
 
     /**
-     * Limpia la base de datos (Nube y Local) y agrega el producto específico de prueba.
+     * Método de inicialización de datos de prueba.
+     *
+     * DESACTIVADO POR SEGURIDAD.
+     *
+     * La implementación original eliminaba todos los
+     * productos de Firestore y de SQLite antes de
+     * insertar un producto de prueba.
+     *
+     * Se conserva el método para compatibilidad,
+     * pero sin ejecutar operaciones destructivas.
      */
+    @Deprecated(
+        message = "Desactivado para proteger los datos compartidos"
+    )
     fun prepopulateDatabase() {
-        viewModelScope.launch(Dispatchers.IO) {
-            // 1. Eliminar todos los registros existentes
-            firebaseRepository.deleteAllProductos()
-            repository.deleteAllProducts()
-
-            // 2. Insertar el nuevo producto en la nube
-            val nuevoProductoNube = ProductFirebase(
-                nombre = "Mouse Logitech M185",
-                descripcion = "Mouse inhalambrico USB.",
-                cantidad = 15,
-                precio = 12.990,
-                proveedor = "Logitech Chile"
-            )
-            firebaseRepository.setProducto(nuevoProductoNube)
-
-            // 3. Insertar el nuevo producto en Room local
-            val nuevoProductoLocal = ProductEntity(
-                nombre = "Mouse Logitech M185",
-                descripcion = "Mouse inhalambrico USB.",
-                cantidad = 15,
-                precio = 12.990,
-                proveedor = "Logitech Chile"
-            )
-            repository.insertProduct(nuevoProductoLocal)
-        }
+        Log.w(
+            "ProductViewModel",
+            "prepopulateDatabase desactivado: no se modificaron datos"
+        )
     }
 
     /**
-     * Consume la API REST del proveedor externo para obtener su catálogo.
+     * Consultar catálogo de un proveedor externo.
+     *
+     * Conserva la interoperabilidad JSON / REST
+     * desarrollada por el equipo.
      */
     fun descargarCatalogoProveedor() {
-        // 1. Iniciamos una corrutina.
-        // Nota: Dispatchers.IO es la capa de la Disponibilidad para que no se congele la pantalla.
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                Log.d(
+                    "ProductViewModel",
+                    "Iniciando descarga del catálogo externo"
+                )
 
-                // 2. Aquí ocurre la magia. Retrofit va a internet, descarga el JSON,
-                // Moshi lo convierte a una Lista de objetos de Kotlin, y nosotros
-                // lo guardamos en la variable 'catalogoTraidoDeInternet'.
-                // ¡Esto es una 'suspend function', por lo que la corrutina espera aquí a que el server responda!
-                val catalogoTraidoDeInternet = apiService.getProductos()
+                val catalogoTraidoDeInternet =
+                    apiService.getProductos()
 
-                // 3. Empujamos la lista descargada a nuestro StateFlow.
-                // Inmediatamente, la Interfaz Gráfica (Compose) se va a redibujar mostrando los datos.
-                _catalogoExterno.value = catalogoTraidoDeInternet
+                _catalogoExterno.value =
+                    catalogoTraidoDeInternet
 
-                // Limpiamos errores si fue exitoso
                 _mensajeErrorRed.value = null
+
+                Log.d(
+                    "ProductViewModel",
+                    "Catálogo externo descargado: " +
+                            "${catalogoTraidoDeInternet.size} productos"
+                )
+
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                // 4. Manejo de Errores (Integridad/Resiliencia)
-                // ¿Qué pasa si no hay internet o el servidor está caído (Error 500)?
-                // Retrofit lanzará una Exception. Debemos capturarla para que la app no haga "Crash".
-                e.printStackTrace()
-                _mensajeErrorRed.value = "Error al conectar con el servidor: ${e.localizedMessage}"
+                Log.e(
+                    "ProductViewModel",
+                    "Error al descargar catálogo externo",
+                    e
+                )
+
+                _mensajeErrorRed.value =
+                    "Error al conectar con el servidor: " +
+                            "${e.localizedMessage}"
             }
         }
     }

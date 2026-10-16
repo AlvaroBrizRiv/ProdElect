@@ -1,9 +1,10 @@
+
 package com.prorganics.prodelect.di
 
 import android.content.Context
-import androidx.room.Room
 import com.prorganics.prodelect.data.local.AppDatabase
 import com.prorganics.prodelect.data.local.dao.ProductoDao
+import com.prorganics.prodelect.data.local.dao.PendingSyncDao
 import com.prorganics.prodelect.data.remote.api.ProductApiService
 import com.prorganics.prodelect.data.repository.FirebaseRepository
 import com.prorganics.prodelect.data.repository.ProductRepository
@@ -17,76 +18,85 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import javax.inject.Singleton
 
 /**
- * Módulo de Inyección de Dependencias de Hilt.
+ * Módulo de dependencias de ProdElect.
  *
- * InstallIn(SingletonComponent::class) significa que las dependencias
- * aquí provistas vivirán el mismo tiempo que la aplicación (Singleton).
+ * Integra:
+ * - Room / SQLite
+ * - Cola de operaciones pendientes
+ * - Repositorios locales y Firebase
+ * - Retrofit / Moshi para JSON y REST
  */
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
-    /**
-     * Provee la instancia Singleton de la Base de Datos de Room.
-     */
+    // Base de datos local Room
     @Provides
     @Singleton
-    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
-        return Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            "prodelect_database"
-        )
-        // .fallbackToDestructiveMigration() // Opcional: útil durante el desarrollo inicial
-        .build()
+    fun provideAppDatabase(
+        @ApplicationContext context: Context
+    ): AppDatabase {
+        return AppDatabase.getDatabase(context)
     }
 
-    /**
-     * Provee el DAO de Productos, requerido por el repositorio local.
-     */
+    // DAO de productos
     @Provides
-    fun provideProductoDao(database: AppDatabase): ProductoDao {
+    fun provideProductoDao(
+        database: AppDatabase
+    ): ProductoDao {
         return database.productoDao()
     }
 
-    /**
-     * Provee el Repositorio de la Base de Datos Local.
-     */
+    // DAO de operaciones pendientes
     @Provides
-    @Singleton
-    fun provideProductRepository(productoDao: ProductoDao): ProductRepository {
-        return ProductRepository(productoDao)
+    fun providePendingSyncDao(
+        database: AppDatabase
+    ): PendingSyncDao {
+        return database.pendingSyncDao()
     }
 
-    /**
-     * Provee el Repositorio de Firebase.
-     */
+    // Repositorio de productos con persistencia local
+    @Provides
+    @Singleton
+    fun provideProductRepository(
+        productoDao: ProductoDao,
+        pendingSyncDao: PendingSyncDao,
+        database: AppDatabase
+    ): ProductRepository {
+        return ProductRepository(
+            productoDao,
+            pendingSyncDao,
+            database
+        )
+    }
+
+    // Repositorio remoto de Firebase
     @Provides
     @Singleton
     fun provideFirebaseRepository(): FirebaseRepository {
         return FirebaseRepository()
     }
 
-    /**
-     * Provee el motor de Retrofit configurado con Moshi y apuntando a nuestro servidor.
-     */
+    // Retrofit para interoperabilidad JSON / REST
     @Provides
     @Singleton
     fun provideRetrofit(): Retrofit {
         return Retrofit.Builder()
-            // Confidencialidad: Siempre usar "https" para encriptar los datos en tránsito.
             .baseUrl("https://mi-servidor-falso.com/")
-            // Le decimos a Retrofit que use Moshi para traducir los JSON a Kotlin
-            .addConverterFactory(MoshiConverterFactory.create())
+            .addConverterFactory(
+                MoshiConverterFactory.create()
+            )
             .build()
     }
 
-    /**
-     * Provee la interfaz de la API lista para ser usada en cualquier Repositorio.
-     */
+    // Servicio REST utilizado por ProductViewModel
     @Provides
     @Singleton
-    fun provideProductApiService(retrofit: Retrofit): ProductApiService {
-        return retrofit.create(ProductApiService::class.java)
+    fun provideProductApiService(
+        retrofit: Retrofit
+    ): ProductApiService {
+        return retrofit.create(
+            ProductApiService::class.java
+        )
     }
 }

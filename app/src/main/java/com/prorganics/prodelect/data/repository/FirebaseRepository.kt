@@ -1,8 +1,10 @@
+
 package com.prorganics.prodelect.data.repository
 
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.prorganics.prodelect.data.local.entity.ProductEntity
 import com.prorganics.prodelect.data.remote.entity.ProductFirebase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -12,19 +14,49 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 /**
- * Repositorio para manejar las operaciones con Firebase Firestore.
- * 
- * Sigue el patrón Repository para abstraer el origen de los datos de la UI.
- * Implementa operaciones CRUD completas y un listener en tiempo real (Sincronización simultánea).
+ * Repositorio remoto de ProdElect.
+ *
+ * Integra:
+ * - CRUD de Firestore
+ * - Lectura en tiempo real
+ * - Sincronización mediante UUID de Room
+ * - Consulta de existencia de documentos
  */
 class FirebaseRepository {
 
     private val db = FirebaseFirestore.getInstance()
+
     private val productosCollection = db.collection("productos")
 
+    // Convertir producto local al formato de Firebase
+    private fun convertirAFirebase(
+        producto: ProductEntity
+    ): ProductFirebase {
+        return ProductFirebase(
+            id = producto.id,
+            nombre = producto.nombre,
+            descripcion = producto.descripcion,
+            cantidad = producto.cantidad,
+            precio = producto.precio,
+            proveedor = producto.proveedor
+        )
+    }
+
     /**
-     * CREATE / UPDATE (set): Guarda o actualiza un producto en Firestore.
-     * Utiliza set() con SetOptions.merge() para hacer "upsert" (si existe actualiza, si no, crea).
+     * Método utilizado por SyncManager.
+     * Conserva el UUID de SQLite.
+     */
+    suspend fun guardarProducto(producto: ProductEntity) {
+        val productoFirebase = convertirAFirebase(producto)
+        setProducto(productoFirebase)
+    }
+
+    /**
+     * Crear o actualizar un producto en Firestore.
+     * Método utilizado por ProductViewModel.
+     *
+     * Los errores se propagan para que el llamador
+     * pueda detectar fallos de sincronización.
      */
     suspend fun setProducto(producto: ProductFirebase) {
         withContext(Dispatchers.IO) {
@@ -34,103 +66,229 @@ class FirebaseRepository {
                 } else {
                     productosCollection.document(producto.id)
                 }
-                docRef.set(producto, SetOptions.merge()).await()
-                Log.d("FirebaseRepository", "✅ Producto guardado/actualizado: ${docRef.id}")
+
+                docRef.set(
+                    producto,
+                    SetOptions.merge()
+                ).await()
+
+                Log.d(
+                    "FirebaseRepository",
+                    "Producto guardado: ${docRef.id}"
+                )
+
             } catch (e: Exception) {
-                Log.e("FirebaseRepository", "❌ Error al guardar el producto", e)
+                Log.e(
+                    "FirebaseRepository",
+                    "Error al guardar producto",
+                    e
+                )
+                throw e
             }
         }
     }
 
     /**
-     * READ (get): Obtiene un producto específico por su ID una sola vez.
+     * Obtener un producto específico desde Firestore.
      */
-    suspend fun getProductoById(productId: String): ProductFirebase? {
+    suspend fun getProductoById(
+        productId: String
+    ): ProductFirebase? {
         return withContext(Dispatchers.IO) {
             try {
-                val snapshot = productosCollection.document(productId).get().await()
-                snapshot.toObject(ProductFirebase::class.java)
+                val documento = productosCollection
+                    .document(productId)
+                    .get()
+                    .await()
+
+                documento.toObject(
+                    ProductFirebase::class.java
+                )
+
             } catch (e: Exception) {
-                Log.e("FirebaseRepository", "❌ Error al obtener el producto $productId", e)
-                null
+                Log.e(
+                    "FirebaseRepository",
+                    "Error al consultar producto $productId",
+                    e
+                )
+                throw e
             }
         }
     }
 
     /**
-     * UPDATE explícito (update): Actualiza campos específicos de un producto sin sobreescribir el resto.
+     * Actualizar campos específicos de un producto.
      */
-    suspend fun updateProducto(productId: String, updates: Map<String, Any>) {
+    suspend fun updateProducto(
+        productId: String,
+        updates: Map<String, Any>
+    ) {
         withContext(Dispatchers.IO) {
             try {
-                productosCollection.document(productId).update(updates).await()
-                Log.d("FirebaseRepository", "✅ Producto actualizado: $productId")
+                productosCollection
+                    .document(productId)
+                    .update(updates)
+                    .await()
+
+                Log.d(
+                    "FirebaseRepository",
+                    "Producto actualizado: $productId"
+                )
+
             } catch (e: Exception) {
-                Log.e("FirebaseRepository", "❌ Error al actualizar el producto", e)
+                Log.e(
+                    "FirebaseRepository",
+                    "Error al actualizar producto",
+                    e
+                )
+                throw e
             }
         }
     }
 
     /**
-     * DELETE (delete): Elimina un producto por su ID de la nube.
+     * Método utilizado por ProductViewModel.
      */
     suspend fun deleteProducto(productId: String) {
         withContext(Dispatchers.IO) {
             try {
-                productosCollection.document(productId).delete().await()
-                Log.d("FirebaseRepository", "✅ Producto eliminado: $productId")
+                productosCollection
+                    .document(productId)
+                    .delete()
+                    .await()
+
+                Log.d(
+                    "FirebaseRepository",
+                    "Producto eliminado: $productId"
+                )
+
             } catch (e: Exception) {
-                Log.e("FirebaseRepository", "❌ Error al eliminar el producto", e)
+                Log.e(
+                    "FirebaseRepository",
+                    "Error al eliminar producto",
+                    e
+                )
+                throw e
             }
         }
     }
 
     /**
-     * BATCH DELETE: Elimina todos los productos de la colección.
+     * Método utilizado por SyncManager.
+     */
+    suspend fun eliminarProducto(productId: String) {
+        deleteProducto(productId)
+    }
+
+    /**
+     * Eliminar todos los productos remotos.
+     *
+     * ADVERTENCIA: Operación destructiva.
+     * No ejecutar en la base compartida durante pruebas.
      */
     suspend fun deleteAllProductos() {
         withContext(Dispatchers.IO) {
             try {
-                val snapshot = productosCollection.get().await()
-                val batch = db.batch()
-                for (doc in snapshot.documents) {
-                    batch.delete(doc.reference)
+                val snapshot = productosCollection
+                    .get()
+                    .await()
+
+                val documentos = snapshot.documents
+
+                for (grupo in documentos.chunked(500)) {
+                    val batch = db.batch()
+
+                    grupo.forEach { documento ->
+                        batch.delete(documento.reference)
+                    }
+
+                    batch.commit().await()
                 }
-                batch.commit().await()
-                Log.d("FirebaseRepository", "✅ Todos los productos eliminados de la nube")
+
+                Log.d(
+                    "FirebaseRepository",
+                    "Eliminación remota completada"
+                )
+
             } catch (e: Exception) {
-                Log.e("FirebaseRepository", "❌ Error eliminando todos los productos", e)
+                Log.e(
+                    "FirebaseRepository",
+                    "Error al eliminar productos",
+                    e
+                )
+                throw e
             }
         }
     }
 
     /**
-     * REALTIME LISTENER: Detecta cambios simultáneos de varios usuarios (vendedor y encargado de almacén).
-     * Convierte la API basada en callbacks de Firebase (addSnapshotListener) a un Flow reactivo de Kotlin,
-     * permitiendo conectarlo limpiamente con la UI a través del ViewModel.
+     * Escucha de productos en tiempo real.
+     * Funcionalidad desarrollada por el equipo.
      */
-    fun getAllProductosRealTime(): Flow<List<ProductFirebase>> = callbackFlow {
-        // addSnapshotListener suscribe a la app a cualquier evento de la base de datos
-        val subscription = productosCollection.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                Log.e("FirebaseRepository", "❌ Error en SnapshotListener", error)
-                close(error) // Cierra el flujo y emite el error
-                return@addSnapshotListener
-            }
+    fun getAllProductosRealTime(): Flow<List<ProductFirebase>> =
+        callbackFlow {
 
-            if (snapshot != null) {
-                val productos = snapshot.documents.mapNotNull { doc ->
-                    doc.toObject(ProductFirebase::class.java)
+            val subscription = productosCollection
+                .addSnapshotListener { snapshot, error ->
+
+                    if (error != null) {
+                        Log.e(
+                            "FirebaseRepository",
+                            "Error en escucha de Firestore",
+                            error
+                        )
+                        close(error)
+                        return@addSnapshotListener
+                    }
+
+                    if (snapshot != null) {
+                        val productos = snapshot.documents.mapNotNull { doc ->
+                            doc.toObject(ProductFirebase::class.java)
+                        }
+
+                        trySend(productos)
+                    }
                 }
-                // Envía la nueva lista sincronizada a los observadores
-                trySend(productos).isSuccess
+
+            awaitClose {
+                subscription.remove()
             }
         }
 
-        // Se invoca automáticamente cuando se cancela el scope (ej. al salir de la app/pantalla).
-        // Evita fugas de memoria limpiando el listener de Firestore (Disponibilidad).
-        awaitClose {
-            subscription.remove()
-        }
+    /**
+     * Verificar si un documento existe en Firestore.
+     * Solo lectura.
+     */
+    suspend fun verificarExistenciaProducto(
+        productId: String
+    ): Boolean {
+        val documento = productosCollection
+            .document(productId)
+            .get()
+            .await()
+
+        Log.d(
+            "FirebaseRepository",
+            "Producto $productId existe: ${documento.exists()}"
+        )
+
+        return documento.exists()
+    }
+
+    /**
+     * Método de prueba original.
+     * Se conserva por compatibilidad.
+     * No ejecutar sin autorización del equipo.
+     */
+    suspend fun agregarProductoDePrueba() {
+        val productoDePrueba = ProductFirebase(
+            nombre = "Microcontrolador ESP32",
+            descripcion = "Modulo Wi-Fi + Bluetooth para proyectos IoT",
+            cantidad = 50,
+            precio = 12.50,
+            proveedor = "ElecSupplies Inc."
+        )
+
+        setProducto(productoDePrueba)
     }
 }
